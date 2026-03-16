@@ -26,12 +26,13 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in serverAddress;
     struct hostent* serverHostInfo;
 
-    char plaintext[MAX_BUF];
+    char ciphertext[MAX_BUF];
     char key[MAX_BUF];
+    char buffer[200000];
     FILE *fp;
 
     if (argc != 4) {
-        fprintf(stderr, "Usage: %s plaintext key port\n", argv[0]);
+        fprintf(stderr, "Usage: %s ciphertext key port\n", argv[0]);
         exit(1);
     }
 
@@ -40,10 +41,10 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error: cannot open %s\n", argv[1]);
         exit(1);
     }
-    memset(plaintext, '\0', sizeof(plaintext));
-    fgets(plaintext, sizeof(plaintext), fp);
+    memset(ciphertext, '\0', sizeof(ciphertext));
+    fgets(ciphertext, sizeof(ciphertext), fp);
     fclose(fp);
-    strip_newline(plaintext);
+    strip_newline(ciphertext);
 
     fp = fopen(argv[2], "r");
     if (fp == NULL) {
@@ -55,12 +56,12 @@ int main(int argc, char *argv[]) {
     fclose(fp);
     strip_newline(key);
 
-    if (!valid_text(plaintext) || !valid_text(key)) {
+    if (!valid_text(ciphertext) || !valid_text(key)) {
         fprintf(stderr, "dec_client error: input contains bad characters\n");
         exit(1);
     }
 
-    if (strlen(key) < strlen(plaintext)) {
+    if (strlen(key) < strlen(ciphertext)) {
         fprintf(stderr, "Error: key '%s' is too short\n", argv[2]);
         exit(1);
     }
@@ -68,7 +69,17 @@ int main(int argc, char *argv[]) {
     portNumber = atoi(argv[3]);
 
     socketFD = socket(AF_INET, SOCK_STREAM, 0);
+    if (socketFD < 0) {
+        fprintf(stderr, "Error: could not contact dec_server on port %d\n", portNumber);
+        exit(2);
+    }
+
     serverHostInfo = gethostbyname("localhost");
+    if (serverHostInfo == NULL) {
+        fprintf(stderr, "Error: could not contact dec_server on port %d\n", portNumber);
+        close(socketFD);
+        exit(2);
+    }
 
     memset((char*)&serverAddress, '\0', sizeof(serverAddress));
     serverAddress.sin_family = AF_INET;
@@ -79,17 +90,32 @@ int main(int argc, char *argv[]) {
            serverHostInfo->h_length);
 
     if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
-        fprintf(stderr, "Error: could not contact enc_server on port %d\n", portNumber);
+        fprintf(stderr, "Error: could not contact dec_server on port %d\n", portNumber);
+        close(socketFD);
         exit(2);
     }
 
-    char buffer[200000];
+    /* handshake: identify as decryption client */
     memset(buffer, '\0', sizeof(buffer));
-
-    sprintf(buffer, "%s\n%s", plaintext, key);
-
+    strcpy(buffer, "DEC\n");
     send(socketFD, buffer, strlen(buffer), 0);
 
+    /* wait for approval */
+    memset(buffer, '\0', sizeof(buffer));
+    recv(socketFD, buffer, sizeof(buffer) - 1, 0);
+
+    if (strcmp(buffer, "OK") != 0) {
+        fprintf(stderr, "Error: could not contact dec_server on port %d\n", portNumber);
+        close(socketFD);
+        exit(2);
+    }
+
+    /* send ciphertext + key */
+    memset(buffer, '\0', sizeof(buffer));
+    sprintf(buffer, "%s\n%s", ciphertext, key);
+    send(socketFD, buffer, strlen(buffer), 0);
+
+    /* receive plaintext */
     memset(buffer, '\0', sizeof(buffer));
     recv(socketFD, buffer, sizeof(buffer) - 1, 0);
 

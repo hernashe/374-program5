@@ -38,11 +38,14 @@ int main(int argc, char *argv[]) {
     listen(listenSocket, 5);
 
     while (1) {
-        while (waitpid(-1, NULL, WNOHANG) > 0);
+        while (waitpid(-1, NULL, WNOHANG) > 0) {
+        }
 
-        connectionSocket = accept(listenSocket,
-                                  (struct sockaddr *)&clientAddress,
-                                  &sizeOfClientInfo);
+        connectionSocket = accept(
+            listenSocket,
+            (struct sockaddr *)&clientAddress,
+            &sizeOfClientInfo
+        );
 
         if (connectionSocket < 0) {
             continue;
@@ -56,36 +59,51 @@ int main(int argc, char *argv[]) {
             char buffer[200000];
             memset(buffer, '\0', sizeof(buffer));
 
+            /* Step 1: receive client identity */
             recv(connectionSocket, buffer, sizeof(buffer) - 1, 0);
 
-            char *plaintext = strtok(buffer, "\n");
+            if (strcmp(buffer, "DEC\n") != 0) {
+                send(connectionSocket, "NO", 2, 0);
+                close(connectionSocket);
+                exit(0);
+            }
+
+            /* Step 2: confirm correct client */
+            send(connectionSocket, "OK", 2, 0);
+
+            /* Step 3: receive ciphertext + key */
+            memset(buffer, '\0', sizeof(buffer));
+            recv(connectionSocket, buffer, sizeof(buffer) - 1, 0);
+
+            char *ciphertextIn = strtok(buffer, "\n");
             char *key = strtok(NULL, "\n");
 
-            char ciphertext[200000];
-            memset(ciphertext, '\0', sizeof(ciphertext));
+            char plaintext[200000];
+            memset(plaintext, '\0', sizeof(plaintext));
 
-            for (int i = 0; plaintext[i] != '\0'; i++) {
-                int p, k, c;
+            for (int i = 0; ciphertextIn[i] != '\0'; i++) {
+                int c, k, p;
 
-                if (plaintext[i] == ' ')
-                    p = 26;
+                if (ciphertextIn[i] == ' ')
+                    c = 26;
                 else
-                    p = plaintext[i] - 'A';
+                    c = ciphertextIn[i] - 'A';
 
                 if (key[i] == ' ')
                     k = 26;
                 else
                     k = key[i] - 'A';
 
-                c = (p - k + 27) % 27;
+                p = (c - k + 27) % 27;
 
-                if (c == 26)
-                    ciphertext[i] = ' ';
+                if (p == 26)
+                    plaintext[i] = ' ';
                 else
-                    ciphertext[i] = 'A' + c;
+                    plaintext[i] = 'A' + p;
             }
 
-            send(connectionSocket, ciphertext, strlen(ciphertext), 0);
+            send(connectionSocket, plaintext, strlen(plaintext), 0);
+
             close(connectionSocket);
             exit(0);
         } else {

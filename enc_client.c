@@ -28,6 +28,7 @@ int main(int argc, char *argv[]) {
 
     char plaintext[MAX_BUF];
     char key[MAX_BUF];
+    char buffer[200000];
     FILE *fp;
 
     if (argc != 4) {
@@ -68,7 +69,17 @@ int main(int argc, char *argv[]) {
     portNumber = atoi(argv[3]);
 
     socketFD = socket(AF_INET, SOCK_STREAM, 0);
+    if (socketFD < 0) {
+        fprintf(stderr, "Error: could not contact enc_server on port %d\n", portNumber);
+        exit(2);
+    }
+
     serverHostInfo = gethostbyname("localhost");
+    if (serverHostInfo == NULL) {
+        fprintf(stderr, "Error: could not contact enc_server on port %d\n", portNumber);
+        close(socketFD);
+        exit(2);
+    }
 
     memset((char*)&serverAddress, '\0', sizeof(serverAddress));
     serverAddress.sin_family = AF_INET;
@@ -80,16 +91,31 @@ int main(int argc, char *argv[]) {
 
     if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
         fprintf(stderr, "Error: could not contact enc_server on port %d\n", portNumber);
+        close(socketFD);
         exit(2);
     }
 
-    char buffer[200000];
+    /* Step 1: identify as encryption client */
     memset(buffer, '\0', sizeof(buffer));
-
-    sprintf(buffer, "%s\n%s", plaintext, key);
-
+    strcpy(buffer, "ENC\n");
     send(socketFD, buffer, strlen(buffer), 0);
 
+    /* Step 2: wait for server approval */
+    memset(buffer, '\0', sizeof(buffer));
+    recv(socketFD, buffer, sizeof(buffer) - 1, 0);
+
+    if (strcmp(buffer, "OK") != 0) {
+        fprintf(stderr, "Error: could not contact enc_server on port %d\n", portNumber);
+        close(socketFD);
+        exit(2);
+    }
+
+    /* Step 3: send plaintext + key */
+    memset(buffer, '\0', sizeof(buffer));
+    sprintf(buffer, "%s\n%s", plaintext, key);
+    send(socketFD, buffer, strlen(buffer), 0);
+
+    /* Step 4: receive ciphertext */
     memset(buffer, '\0', sizeof(buffer));
     recv(socketFD, buffer, sizeof(buffer) - 1, 0);
 

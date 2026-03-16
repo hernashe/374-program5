@@ -38,11 +38,14 @@ int main(int argc, char *argv[]) {
     listen(listenSocket, 5);
 
     while (1) {
-        while (waitpid(-1, NULL, WNOHANG) > 0);
+        while (waitpid(-1, NULL, WNOHANG) > 0) {
+        }
 
-        connectionSocket = accept(listenSocket,
-                                  (struct sockaddr *)&clientAddress,
-                                  &sizeOfClientInfo);
+        connectionSocket = accept(
+            listenSocket,
+            (struct sockaddr *)&clientAddress,
+            &sizeOfClientInfo
+        );
 
         if (connectionSocket < 0) {
             continue;
@@ -56,6 +59,20 @@ int main(int argc, char *argv[]) {
             char buffer[200000];
             memset(buffer, '\0', sizeof(buffer));
 
+            /* Step 1: receive client identity */
+            recv(connectionSocket, buffer, sizeof(buffer) - 1, 0);
+
+            if (strcmp(buffer, "ENC\n") != 0) {
+                send(connectionSocket, "NO", 2, 0);
+                close(connectionSocket);
+                exit(0);
+            }
+
+            /* Step 2: confirm correct client */
+            send(connectionSocket, "OK", 2, 0);
+
+            /* Step 3: receive plaintext + key */
+            memset(buffer, '\0', sizeof(buffer));
             recv(connectionSocket, buffer, sizeof(buffer) - 1, 0);
 
             char *plaintext = strtok(buffer, "\n");
@@ -86,6 +103,7 @@ int main(int argc, char *argv[]) {
             }
 
             send(connectionSocket, ciphertext, strlen(ciphertext), 0);
+
             close(connectionSocket);
             exit(0);
         } else {
